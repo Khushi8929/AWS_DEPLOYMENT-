@@ -3,10 +3,11 @@ name: ECS Deploy Pipeline
 on:
   push:
     branches:
-      - main   # Deploy only when pushing to main branch
+      - main
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: "904532699918"
   ECR_REPOSITORY: "doc-app"
   CLUSTER_NAME: "kp-doc-cluster"
   SERVICE_NAME: "doc-service"
@@ -14,11 +15,11 @@ env:
 
 jobs:
   build-and-push:
-    name: Build & Push Docker Image
+    name: Build & Push Image
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -35,17 +36,17 @@ jobs:
         run: |
           docker build -t doc-app:${{ github.run_id }} ./app
 
-      - name: Tag image for ECR
+      - name: Tag Docker image
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-          docker tag doc-app:${{ github.run_id }} \
-            $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/doc-app:${{ github.run_id }}
+          IMAGE_URI="904532699918.dkr.ecr.us-east-1.amazonaws.com/doc-app:${{ github.run_id }}"
+          echo "Tagging image as: $IMAGE_URI"
+          docker tag doc-app:${{ github.run_id }} $IMAGE_URI
 
-      - name: Push to ECR
+      - name: Push Docker image to ECR
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-          docker push \
-            $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/doc-app:${{ github.run_id }}
+          IMAGE_URI="904532699918.dkr.ecr.us-east-1.amazonaws.com/doc-app:${{ github.run_id }}"
+          echo "Pushing image: $IMAGE_URI"
+          docker push $IMAGE_URI
 
   deploy:
     name: Deploy to ECS
@@ -66,17 +67,17 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Get current Task Definition JSON
+      - name: Get current Task Definition
         run: |
           aws ecs describe-task-definition \
             --task-definition doc-task \
             --query 'taskDefinition' \
             --output json > task.json
 
-      - name: Update Task Definition with new image URI
+      - name: Update Task Definition with new image
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-          NEW_IMAGE="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/doc-app:${{ github.run_id }}"
+          NEW_IMAGE="904532699918.dkr.ecr.us-east-1.amazonaws.com/doc-app:${{ github.run_id }}"
+          echo "Updating task definition with image: $NEW_IMAGE"
 
           cat task.json | jq --arg IMG "$NEW_IMAGE" \
             '.containerDefinitions[0].image = $IMG |
@@ -84,7 +85,7 @@ jobs:
                  .compatibilities, .registeredAt, .registeredBy)' \
             > new-task.json
 
-      - name: Register new Task Definition revision
+      - name: Register new Task Definition
         run: |
           NEW_ARN=$(aws ecs register-task-definition \
             --cli-input-json file://new-task.json \
@@ -93,7 +94,7 @@ jobs:
 
           echo "NEW_TASK_DEF=$NEW_ARN" >> $GITHUB_ENV
 
-      - name: Update ECS Service with new Task Definition
+      - name: Update ECS service
         run: |
           aws ecs update-service \
             --cluster kp-doc-cluster \
