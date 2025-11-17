@@ -3,7 +3,7 @@ const port = process.env.PORT || 3000;
 
 
 const requestHandler = (request, response) => {
-  response.end('Hello from ECS Fargate!!!');
+  response.end('Hello from Hitech!!!');
 };
 
 const server = http.createServer(requestHandler);
